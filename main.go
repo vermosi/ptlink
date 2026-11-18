@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -65,12 +64,7 @@ func loadConfig() {
 
 // setCfg turns on Pocket Tanks' built-in IP-to-IP mode in pt.cfg.
 func setCfg(gameDir, ip string) {
-	paths := []string{filepath.Join(gameDir, "pt.cfg")}
-	if la := os.Getenv("LOCALAPPDATA"); la != "" {
-		// Windows may redirect writes under Program Files to VirtualStore.
-		rel := strings.TrimPrefix(gameDir, filepath.VolumeName(gameDir))
-		paths = append(paths, filepath.Join(la, "VirtualStore", rel, "pt.cfg"))
-	}
+	paths := cfgPaths(gameDir)
 	wrote := false
 	for i, p := range paths {
 		b, err := os.ReadFile(p)
@@ -82,6 +76,8 @@ func setCfg(gameDir, ip string) {
 			s = "<PT_CONFIG\r\n/>\r\n"
 		}
 		s = setAttr(s, "networkIPSupport", "1")
+		// Let Mac and Windows copies of the game play each other.
+		s = setAttr(s, "networkExeCRC", "0")
 		if ip != "" {
 			s = setAttr(s, "networkIP2IPAddress", ip)
 		}
@@ -109,25 +105,12 @@ func setAttr(s, k, v string) string {
 	return s[:i] + "    " + k + `="` + v + "\"\r\n" + s[i:]
 }
 
-func launchGame(gameDir string) {
-	exe := filepath.Join(gameDir, "pockettanks.exe")
-	if _, err := os.Stat(exe); err != nil {
-		log.Printf("Pocket Tanks not found next to PTLink. Start the game yourself.")
-		return
-	}
-	c := exec.Command(exe)
-	c.Dir = gameDir
-	if err := c.Start(); err != nil {
-		log.Printf("could not start game: %v", err)
-	}
-}
-
 func main() {
 	host := flag.Bool("host", false, "host a game")
 	join := flag.String("join", "", "join a game with this code")
 	private := flag.Bool("private", false, "don't list the hosted game publicly")
 	noGame := flag.Bool("nogame", false, "don't touch pt.cfg or start the game")
-	joinIP := flag.String("joinip", "127.0.0.2", "local address the joiner's game connects to")
+	joinIP := flag.String("joinip", "", "local address the joiner's game connects to")
 	relayURL := flag.String("relay", "", "override relay URL")
 	relayKey := flag.String("key", "", "override relay key")
 	// Links from the website arrive as the only argument: ptlink://...
@@ -184,6 +167,9 @@ func main() {
 	} else {
 		t.sid = randCode(10)
 		t.joinIP = *joinIP
+		if t.joinIP == "" {
+			t.joinIP = defaultJoinIP()
+		}
 		t.waitLocal = !*noGame
 	}
 	if !*host && len(code) < 9 {
@@ -257,14 +243,4 @@ func main() {
 	<-r.Done()
 	fmt.Print("Disconnected from relay. Press Enter to exit.")
 	in.ReadString('\n')
-}
-
-// findGameDir prefers the folder PTLink is in, then the default install folder.
-func findGameDir() string {
-	for _, d := range []string{exeDir(), `C:\Program Files (x86)\Pocket Tanks`, `C:\Program Files\Pocket Tanks`} {
-		if _, err := os.Stat(filepath.Join(d, "pockettanks.exe")); err == nil {
-			return d
-		}
-	}
-	return exeDir()
 }

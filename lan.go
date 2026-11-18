@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -81,6 +82,12 @@ func listenBroadcast(p int, gameIP string) *net.UDPConn {
 	}
 	for _, ip := range lanIPv4s() {
 		tries = append(tries, try{ip, true})
+	}
+	if runtime.GOOS != "windows" {
+		// BSD/macOS deliver broadcasts to sockets bound to the broadcast address.
+		for _, b := range broadcastAddrs() {
+			tries = append(tries, try{b, true})
+		}
 	}
 	tries = append(tries, try{net.IPv4zero, true})
 	var lastErr error
@@ -183,4 +190,57 @@ func (t *Tunnel) gameAddr(p int) *net.UDPAddr {
 		t.mu.Unlock()
 	}
 	return &net.UDPAddr{IP: net.ParseIP(localTarget(ip)).To4(), Port: p}
+}
+
+func broadcastAddrs() []net.IP {
+	out := []net.IP{net.IPv4bcast}
+	addrs, _ := net.InterfaceAddrs()
+	for _, a := range addrs {
+		n, ok := a.(*net.IPNet)
+		if !ok || n.IP.To4() == nil || n.IP.IsLoopback() {
+			continue
+		}
+		ip, m := n.IP.To4(), n.Mask
+		if len(m) == 16 {
+			m = m[12:]
+		}
+		b := make(net.IP, 4)
+		for i := range b {
+			b[i] = ip[i] | ^m[i]
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
+func reuseControl(_, _ string, rc syscall.RawConn) error {
+	var e error
+	rc.Control(func(fd uintptr) { e = setReuse(fd) })
+	return e
+}
+
+// listenUDPMaybeShared binds addr; outside Windows it shares the port with
+// the game (BSD lets a specific-address bind coexist with the game's 0.0.0.0).
+func listenUDPMaybeShared(addr string) (*net.UDPConn, error) {
+	lc := net.ListenConfig{}
+	if runtime.GOOS != "windows" {
+		lc.Control = reuseControl
+	}
+	pc, err := lc.ListenPacket(context.Background(), "udp4", addr)
+	if err != nil {
+		return nil, err
+	}
+	return pc.(*net.UDPConn), nil
+}
+
+// defaultJoinIP is the address the joiner's game sees the host at.
+// Windows has the whole 127.x range; macOS only has 127.0.0.1, so use the LAN IP.
+func defaultJoinIP() string {
+	if runtime.GOOS == "windows" || runtime.GOOS == "linux" {
+		return "127.0.0.2"
+	}
+	if ips := lanIPv4s(); len(ips) > 0 {
+		return ips[0].String()
+	}
+	return "127.0.0.1"
 }

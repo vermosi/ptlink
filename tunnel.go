@@ -374,8 +374,7 @@ func (t *Tunnel) joinListenUDP(p int) {
 	if ok {
 		return
 	}
-	a, _ := net.ResolveUDPAddr("udp4", fmt.Sprintf("%s:%d", t.joinIP, p))
-	c, err := net.ListenUDP("udp4", a)
+	c, err := listenUDPMaybeShared(fmt.Sprintf("%s:%d", t.joinIP, p))
 	if err != nil {
 		log.Printf("could not listen on UDP %s:%d: %v", t.joinIP, p, err)
 		return

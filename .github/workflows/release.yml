@@ -1,7 +1,7 @@
 name: Release
 
-# Bump the VERSION file on main (or run manually) to build PTLink.exe from
-# this code and publish it as a GitHub release.
+# Bump the VERSION file on main (or run manually) to build PTLink for Windows
+# and macOS from this code and publish both as a GitHub release.
 on:
   push:
     branches: [main]
@@ -12,20 +12,71 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  windows:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
-      - name: Read version
-        run: echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
-      - name: Build Windows exe
+      - name: Build PTLink.exe
         run: |
           GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o PTLink.exe .
           zip PTLink.zip PTLink.exe README.md LICENSE
-          sha256sum PTLink.zip PTLink.exe > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: PTLink.zip
+
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Build universal binary
+        run: |
+          GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o ptlink-arm64 .
+          GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o ptlink-amd64 .
+          lipo -create -output ptlink ptlink-arm64 ptlink-amd64
+      - name: Build PTLink.app
+        run: |
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          osacompile -o PTLink.app macos/PTLink.applescript
+          cp ptlink PTLink.app/Contents/Resources/ptlink
+          chmod +x PTLink.app/Contents/Resources/ptlink
+          P=PTLink.app/Contents/Info.plist
+          PB=/usr/libexec/PlistBuddy
+          $PB -c "Set :CFBundleIdentifier io.github.vermosi.ptlink" $P 2>/dev/null || $PB -c "Add :CFBundleIdentifier string io.github.vermosi.ptlink" $P
+          $PB -c "Add :CFBundleShortVersionString string $VERSION" $P 2>/dev/null || $PB -c "Set :CFBundleShortVersionString $VERSION" $P
+          $PB -c "Add :NSAppleEventsUsageDescription string 'PTLink opens a Terminal window to show its connection status.'" $P 2>/dev/null || true
+          $PB -c "Add :CFBundleURLTypes array" \
+              -c "Add :CFBundleURLTypes:0 dict" \
+              -c "Add :CFBundleURLTypes:0:CFBundleURLName string PTLink" \
+              -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" \
+              -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string ptlink" $P
+          codesign --force --deep --sign - PTLink.app
+          codesign --verify --deep PTLink.app
+          plutil -p $P
+          ditto -c -k --keepParent PTLink.app PTLink-mac.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: PTLink-mac.zip
+
+  release:
+    needs: [windows, mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
+          sha256sum PTLink.zip PTLink-mac.zip > SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}
@@ -33,9 +84,11 @@ jobs:
           make_latest: true
           files: |
             PTLink.zip
+            PTLink-mac.zip
             SHA256SUMS.txt
           body: |
-            Download **PTLink.zip**, unzip it, and double-click `PTLink.exe` (don't run it as administrator).
-            Windows may say "Windows protected your PC" because the app isn't signed yet: click **More info → Run anyway**.
+            **Windows:** download **PTLink.zip**, unzip it, and double-click `PTLink.exe` (don't run it as administrator). If Windows says "Windows protected your PC", click **More info → Run anyway**.
+
+            **Mac:** download **PTLink-mac.zip**, unzip it, and move **PTLink.app** to Applications. The first time, open it, then go to **System Settings → Privacy & Security** and click **Open Anyway**. Allow it to control Terminal when asked.
 
             Unofficial fan project, not affiliated with Blitwise Productions. You need your own copy of Pocket Tanks.

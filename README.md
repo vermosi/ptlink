@@ -15,6 +15,13 @@ shared, no port forwarding, no accounts for players.
    - Joiner: Network Game → IP-to-IP → join `127.0.0.2`.
 4. Keep the PTLink window open while you play.
 
+## Mac
+Download `PTLink-mac.zip` from Releases, unzip, and move **PTLink.app** to Applications.
+macOS blocks apps from unidentified developers the first time: open PTLink, then go to
+**System Settings → Privacy & Security → Open Anyway**. Allow it to control Terminal when asked
+(PTLink shows its status in a Terminal window). Pocket Tanks for Mac is an Intel app; on
+Apple Silicon Macs, macOS will offer to install Rosetta the first time.
+
 ## How it works
 Pocket Tanks already has a hidden IP-to-IP mode (`networkIPSupport` in `pt.cfg`).
 PTLink pretends to be the host on the joiner's own PC (`127.0.0.2`) and carries the
