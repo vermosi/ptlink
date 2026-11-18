@@ -23,7 +23,11 @@ func playerName(gameDir string) string {
 		filepath.Join(os.Getenv("LOCALAPPDATA"), "VirtualStore", "Program Files (x86)", "Pocket Tanks", "pt.cfg")} {
 		if b, err := os.ReadFile(p); err == nil {
 			if m := regexp.MustCompile(`netPlayerName="([^"]+)"`).FindSubmatch(b); m != nil {
-				return string(m[1])
+				n := []rune(string(m[1]))
+				if len(n) > 24 {
+					n = n[:24]
+				}
+				return string(n)
 			}
 		}
 	}

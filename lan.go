@@ -160,6 +160,13 @@ func (t *Tunnel) ensureJoinUDP(port int) *net.UDPConn {
 
 // joinAnnounce delivers a host broadcast to the joiner's game from 127.0.0.2.
 func (t *Tunnel) joinAnnounce(it item) {
+	// Only deliver announcements to a port our own game is actually using.
+	t.mu.Lock()
+	_, ok := t.localIP[it.P]
+	t.mu.Unlock()
+	if !ok {
+		return
+	}
 	c := t.ensureJoinUDP(it.P)
 	if c == nil {
 		return

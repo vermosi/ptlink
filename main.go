@@ -123,6 +123,11 @@ func main() {
 			args = append(args, a)
 		}
 	}
+	if len(link) > 0 {
+		// Started from a website link: never accept any other options, so a
+		// crafted link can't point PTLink at a different relay or settings.
+		args = nil
+	}
 	flag.CommandLine.Parse(args)
 	log.SetFlags(log.Ltime)
 	registerProtocol()
@@ -172,9 +177,17 @@ func main() {
 		}
 		t.waitLocal = !*noGame
 	}
-	if !*host && len(code) < 9 {
-		log.Fatalf("That code looks wrong. It should look like ABCD-1234.")
+	if !*host && len(code) == 8 && !strings.Contains(code, "-") {
+		code = code[:4] + "-" + code[4:]
 	}
+	if !*host && !validCode(code) {
+		fmt.Println("That code looks wrong. It should look like ABCD-EFGH.")
+		fmt.Print("Press Enter to exit.")
+		in.ReadString('\n')
+		os.Exit(1)
+	}
+	t.code = code
+	t.key = newSessionKey()
 
 	log.Printf("Connecting to relay...")
 	r, err := ConnectRelay(RelayURL, RelayKey, "ptlink-"+code, t.onRelay)
@@ -193,9 +206,10 @@ func main() {
 		fmt.Println("  Your code:  " + code)
 		fmt.Println("  Send it to your friend. Keep this window open while you play.")
 		fmt.Println()
+		t.onPeer = func() { log.Printf("Friend connected (encrypted).") }
 		if !*private {
 			lobby := announceGame(code, playerName(gameDir))
-			t.onPeer = func() { lobby.SetStatus("full") }
+			t.onPeer = func() { log.Printf("Friend connected (encrypted)."); lobby.SetStatus("full") }
 		} else {
 			log.Printf("Private game: only people with the code can join.")
 		}
@@ -222,14 +236,14 @@ func main() {
 					return
 				default:
 				}
-				t.push(item{T: "hello"})
+				t.sendHandshake()
 				time.Sleep(3 * time.Second)
 			}
 		}()
 		go func() {
 			select {
 			case <-t.peerOK:
-				log.Printf("Connected to host through the relay.")
+				log.Printf("Connected to host through the relay (encrypted).")
 				if !*noGame {
 					launchGame(gameDir)
 				}
